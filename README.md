@@ -47,7 +47,7 @@ cd dungeon-cartographer
 # Open index.html in any modern browser — no build step required
 ```
 
-Or just visit the **[Live Demo →](https://YOUR_USERNAME.github.io/dungeon-cartographer)**
+Or just visit the **[Live Demo →](https://SamriddhiDua.github.io/Dungeon-Cartographer-Game)**
 
 ---
 
