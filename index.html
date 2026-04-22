@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dungeon Cartographer</title>
+<link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=IM+Fell+English:ital@0;1&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --parchment: #c8a96e;
+    --parchment-dark: #a07840;
+    --parchment-light: #e8d4a8;
+    --ink: #1a0f00;
+    --ink-faded: #4a3820;
+    --fog: rgba(12,8,4,0.92);
+    --fog-partial: rgba(12,8,4,0.55);
+    --stone: #2a2218;
+    --stone-light: #3d3428;
+    --torch: #ff9a1a;
+    --torch-glow: rgba(255,154,26,0.18);
+    --blood: #8b1a1a;
+    --gold: #d4a017;
+    --emerald: #1a7a4a;
+    --map-bg: #d4b896;
+    --map-ink: #3a2010;
+    --danger: #c0392b;
+    --safe: #27ae60;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0c0806;
+    font-family: 'IM Fell English', serif;
+    color: var(--parchment-light);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #loading-screen {
+    position: fixed; inset: 0;
+    background: #0c0806;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.8s;
+  }
+  #loading-screen h1 {
+    font-family: 'UnifrakturMaguntia', cursive;
+    font-size: 52px;
+    color: var(--torch);
+    text-shadow: 0 0 40px rgba(255,154,26,0.6);
+    margin-bottom: 12px;
+    animation: flicker 2s infinite;
+  }
+  #loading-screen p { font-style: italic; color: var(--parchment); font-size: 15px; margin-bottom: 32px; }
+  .load-bar-wrap { width: 240px; height: 4px; background: var(--stone); border-radius: 2px; }
+  .load-bar { height: 4px; background: var(--torch); border-radius: 2px; width: 0%; transition: width 0.1s; }
+
+  @keyframes flicker {
+    0%,100%{opacity:1;text-shadow:0 0 40px rgba(255,154,26,0.6)}
+    50%{opacity:0.85;text-shadow:0 0 60px rgba(255,154,26,0.9)}
+    75%{opacity:0.95}
+  }
+  @keyframes torchPulse {
+    0%,100%{box-shadow:0 0 20px 4px rgba(255,154,26,0.25)}
+    50%{box-shadow:0 0 35px 8px rgba(255,154,26,0.4)}
+  }
+
+  #header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 20px;
+    background: linear-gradient(180deg, #1a1008 0%, #0c0806 100%);
+    border-bottom: 1px solid rgba(200,169,110,0.2);
+    flex-shrink: 0;
+    height: 52px;
+  }
+  #header h1 {
+    font-family: 'UnifrakturMaguntia', cursive;
+    font-size: 26px;
+    color: var(--torch);
+    animation: flicker 3s infinite;
+  }
+  .hud-pills { display: flex; gap: 16px; align-items: center; }
+  .hud-pill {
+    display: flex; align-items: center; gap: 6px;
+    font-family: 'Courier Prime', monospace;
+    font-size: 13px; color: var(--parchment);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(200,169,110,0.2);
+    padding: 3px 10px; border-radius: 3px;
+  }
+  .hud-pill .icon { font-size: 14px; }
+  .hud-pill span { color: var(--parchment-light); font-weight: 700; }
+
+  #game-area {
+    display: flex; flex: 1; overflow: hidden;
+    gap: 0;
+  }
+
+  /* DUNGEON CANVAS */
+  #dungeon-wrap {
+    flex: 1; position: relative; overflow: hidden;
+    background: #080604;
+  }
+  #dungeon-canvas { display: block; }
+  #fog-canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+
+  /* SIDE PANEL */
+  #side-panel {
+    width: 220px; flex-shrink: 0;
+    background: linear-gradient(180deg, #15100a 0%, #0c0806 100%);
+    border-left: 1px solid rgba(200,169,110,0.2);
+    display: flex; flex-direction: column;
+    padding: 14px 12px;
+    gap: 14px;
+    overflow-y: auto;
+  }
+  .panel-section h3 {
+    font-family: 'UnifrakturMaguntia', cursive;
+    font-size: 16px; color: var(--torch);
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(200,169,110,0.15);
+    padding-bottom: 4px;
+  }
+
+  /* MAP DRAWING */
+  #map-canvas-wrap {
+    position: relative;
+    border: 1px solid rgba(200,169,110,0.3);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--map-bg);
+    box-shadow: inset 0 0 20px rgba(100,60,20,0.4);
+  }
+  #map-canvas {
+    display: block;
+    cursor: crosshair;
+    image-rendering: pixelated;
+  }
+  .map-tools { display: flex; gap: 6px; margin-top: 6px; }
+  .map-tool-btn {
+    flex: 1; padding: 5px 4px;
+    font-family: 'Courier Prime', monospace;
+    font-size: 11px; font-weight: 700;
+    background: transparent;
+    border: 1px solid rgba(200,169,110,0.3);
+    color: var(--parchment); cursor: pointer;
+    border-radius: 2px; transition: all 0.15s;
+    text-align: center;
+  }
+  .map-tool-btn:hover { background: rgba(200,169,110,0.1); }
+  .map-tool-btn.active { background: rgba(255,154,26,0.2); border-color: var(--torch); color: var(--torch); }
+
+  /* CONTROLS */
+  .controls-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px; text-align: center;
+  }
+  .ctrl-key {
+    background: rgba(200,169,110,0.1);
+    border: 1px solid rgba(200,169,110,0.25);
+    border-radius: 3px;
+    padding: 6px 4px;
+    font-family: 'Courier Prime', monospace;
+    font-size: 13px; color: var(--parchment);
+    font-weight: 700;
+  }
+  .ctrl-label { font-size: 10px; color: var(--ink-faded); font-style: italic; }
+
+  .legend-row { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; font-size: 12px; color: var(--parchment); }
+  .legend-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+  /* SCORECARD */
+  #scorecard {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(8,6,4,0.95);
+    z-index: 999;
+    align-items: center; justify-content: center;
+  }
+  #scorecard.visible { display: flex; }
+  .score-parchment {
+    background: #c8a96e;
+    background-image:
+      radial-gradient(ellipse at 20% 20%, rgba(255,255,255,0.15) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 80%, rgba(100,60,20,0.2) 0%, transparent 60%);
+    border: 3px solid var(--parchment-dark);
+    border-radius: 4px;
+    width: 540px; max-width: 96vw;
+    padding: 36px 40px;
+    color: var(--ink);
+    box-shadow: 0 0 80px rgba(255,154,26,0.3), 0 20px 60px rgba(0,0,0,0.8);
+    animation: unfurl 0.5s ease-out;
+  }
+  @keyframes unfurl {
+    from { transform: scaleY(0.1) scaleX(0.8); opacity: 0; }
+    to { transform: scaleY(1) scaleX(1); opacity: 1; }
+  }
+  .score-parchment h2 {
+    font-family: 'UnifrakturMaguntia', cursive;
+    font-size: 38px; text-align: center;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .score-subtitle {
+    text-align: center; font-style: italic;
+    color: var(--ink-faded); font-size: 14px;
+    margin-bottom: 24px;
+  }
+  .score-divider {
+    height: 1px; background: var(--parchment-dark);
+    margin: 16px 0; opacity: 0.5;
+  }
+  .score-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+  .score-item {
+    background: rgba(100,60,20,0.1);
+    border: 1px solid rgba(100,60,20,0.2);
+    border-radius: 3px;
+    padding: 12px 14px;
+  }
+  .score-item-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faded); margin-bottom: 4px; font-family: 'Courier Prime', monospace; }
+  .score-item-value { font-size: 28px; font-weight: 700; color: var(--ink); font-family: 'Courier Prime', monospace; }
+  .score-item-sub { font-size: 11px; color: var(--ink-faded); font-style: italic; }
+  .score-rank {
+    text-align: center;
+    padding: 16px;
+    background: rgba(100,60,20,0.12);
+    border: 1px solid rgba(100,60,20,0.25);
+    border-radius: 3px;
+    margin-bottom: 20px;
+  }
+  .score-rank-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-faded); font-family: 'Courier Prime', monospace; margin-bottom: 6px; }
+  .score-rank-title { font-family: 'UnifrakturMaguntia', cursive; font-size: 32px; color: var(--ink); }
+  .score-rank-desc { font-size: 13px; font-style: italic; color: var(--ink-faded); margin-top: 4px; }
+  .score-btn {
+    width: 100%; padding: 12px;
+    font-family: 'UnifrakturMaguntia', cursive;
+    font-size: 22px;
+    background: var(--ink);
+    color: var(--torch);
+    border: none; border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+  .score-btn:hover { background: #2a1a08; box-shadow: 0 0 20px rgba(255,154,26,0.3); }
+
+  #toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(12,8,4,0.92);
+    border: 1px solid rgba(200,169,110,0.3);
+    color: var(--parchment-light);
+    font-family: 'IM Fell English', serif;
+    font-style: italic; font-size: 14px;
+    padding: 8px 20px; border-radius: 2px;
+    z-index: 998;
+    opacity: 0; transition: opacity 0.3s;
+    pointer-events: none;
+    text-align: center;
+  }
+  #toast.show { opacity: 1; }
+
+  .torch-flicker {
+    animation: torchPulse 1.5s ease-in-out infinite;
+  }
+
+  #instructions {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+    animation: fadeInstructions 3s forwards;
+  }
+  @keyframes fadeInstructions {
+    0%,60%{opacity:1} 100%{opacity:0}
+  }
+  #instructions h2 { font-family: 'UnifrakturMaguntia', cursive; font-size: 28px; color: var(--torch); margin-bottom: 8px; }
+  #instructions p { font-style: italic; font-size: 14px; color: var(--parchment); }
+</style>
+</head>
+<body>
+
+<div id="loading-screen">
+  <h1>Dungeon Cartographer</h1>
+  <p><em>Generating your dungeon...</em></p>
+  <div class="load-bar-wrap"><div class="load-bar" id="load-bar"></div></div>
+</div>
+
+<div id="header">
+  <h1>Dungeon Cartographer</h1>
+  <div class="hud-pills">
+    <div class="hud-pill"><span class="icon">⚔</span> Floor <span id="hud-floor">1</span></div>
+    <div class="hud-pill"><span class="icon">🏛</span> Rooms <span id="hud-rooms">0</span></div>
+    <div class="hud-pill"><span class="icon">👁</span> Explored <span id="hud-explored">0%</span></div>
+    <div class="hud-pill"><span class="icon">💀</span> Monsters <span id="hud-monsters">0</span></div>
+    <div class="hud-pill"><span class="icon">✦</span> Treasure <span id="hud-treasure">0</span></div>
+    <div class="hud-pill"><span class="icon">🕯</span> Steps <span id="hud-steps">0</span></div>
+  </div>
+</div>
+
+<div id="game-area">
+  <div id="dungeon-wrap">
+    <canvas id="dungeon-canvas"></canvas>
+    <canvas id="fog-canvas"></canvas>
+    <div id="instructions">
+      <h2>Enter the Dungeon</h2>
+      <p>Use WASD or Arrow Keys to move<br>Draw your map on the right panel</p>
+    </div>
+  </div>
+  <div id="side-panel">
+    <div class="panel-section">
+      <h3>Your Map</h3>
+      <div id="map-canvas-wrap">
+        <canvas id="map-canvas" width="194" height="194"></canvas>
+      </div>
+      <div class="map-tools">
+        <button class="map-tool-btn active" id="tool-wall" onclick="setMapTool('wall')">Wall</button>
+        <button class="map-tool-btn" id="tool-room" onclick="setMapTool('room')">Room</button>
+        <button class="map-tool-btn" id="tool-erase" onclick="setMapTool('erase')">Erase</button>
+      </div>
+      <button class="map-tool-btn" style="width:100%;margin-top:5px;" onclick="clearMap()">Clear Map</button>
+    </div>
+
+    <div class="panel-section">
+      <h3>Controls</h3>
+      <div class="controls-grid">
+        <div></div>
+        <div class="ctrl-key">W<br><span class="ctrl-label">↑</span></div>
+        <div></div>
+        <div class="ctrl-key">A<br><span class="ctrl-label">←</span></div>
+        <div class="ctrl-key">S<br><span class="ctrl-label">↓</span></div>
+        <div class="ctrl-key">D<br><span class="ctrl-label">→</span></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Legend</h3>
+      <div class="legend-row"><div class="legend-dot" style="background:#e8c87a;"></div> Your position</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#8b1a1a;"></div> Monster</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#d4a017;"></div> Treasure</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#1a5a7a;"></div> Exit stairs</div>
+      <div class="legend-row"><div class="legend-dot" style="background:rgba(200,169,110,0.15);border:1px solid rgba(200,169,110,0.2);"></div> Fog of war</div>
+    </div>
+
+    <div class="panel-section" style="margin-top:auto;">
+      <button class="map-tool-btn" style="width:100%;padding:8px;font-size:13px;" onclick="exitDungeon()">⚑ Exit & Score</button>
+    </div>
+  </div>
+</div>
+
+<div id="scorecard">
+  <div class="score-parchment">
+    <h2>Expedition Report</h2>
+    <p class="score-subtitle">The Cartographers' Guild has reviewed your survey</p>
+    <div class="score-divider"></div>
+    <div class="score-grid">
+      <div class="score-item">
+        <div class="score-item-label">Map Accuracy</div>
+        <div class="score-item-value" id="sc-accuracy">—</div>
+        <div class="score-item-sub">vs. actual dungeon</div>
+      </div>
+      <div class="score-item">
+        <div class="score-item-label">Rooms Explored</div>
+        <div class="score-item-value" id="sc-rooms">—</div>
+        <div class="score-item-sub" id="sc-rooms-sub">of total rooms</div>
+      </div>
+      <div class="score-item">
+        <div class="score-item-label">Monsters Avoided</div>
+        <div class="score-item-value" id="sc-monsters">—</div>
+        <div class="score-item-sub" id="sc-monsters-sub">lurking in dark</div>
+      </div>
+      <div class="score-item">
+        <div class="score-item-label">Treasure Found</div>
+        <div class="score-item-value" id="sc-treasure">—</div>
+        <div class="score-item-sub" id="sc-treasure-sub">pieces of gold</div>
+      </div>
+    </div>
+    <div class="score-rank">
+      <div class="score-rank-label">Guild Rank Awarded</div>
+      <div class="score-rank-title" id="sc-rank-title">—</div>
+      <div class="score-rank-desc" id="sc-rank-desc">—</div>
+    </div>
+    <button class="score-btn" onclick="restartGame()">Descend Deeper</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
+const TILE = 20;
+const GRID_W = 60;
+const GRID_H = 38;
+const VISION_R = 5;
+const MAP_GRID = 28; // map canvas grid cells
+
+// Tile types
+const T_VOID=0, T_WALL=1, T_FLOOR=2, T_DOOR=3, T_STAIRS=4;
+
+// Map drawing
+let mapTool = 'wall';
+let mapDrawing = false;
+let mapData = new Uint8Array(MAP_GRID * MAP_GRID); // 0=empty,1=wall,2=room,3=mark
+
+// Game state
+let dungeon = null;
+let player = { x: 0, y: 0 };
+let fogMap = null;
+let revealed = null;
+let monsters = [];
+let treasures = [];
+let stairsPos = null;
+let stats = { roomsExplored: new Set(), monstersAvoided: 0, treasureFound: 0, steps: 0, monstersEncountered: 0 };
+let rooms = [];
+let gameOver = false;
+let floorNum = 1;
+
+// Canvas refs
+let dungeonCanvas, dungeonCtx, fogCanvas, fogCtx, mapCanvas, mapCtx;
+
+// ─── BSP TREE ────────────────────────────────────────────────────────────────
+class BSPNode {
+  constructor(x,y,w,h) { this.x=x;this.y=y;this.w=w;this.h=h;this.left=null;this.right=null;this.room=null; }
+}
+
+function bspSplit(node, depth=0) {
+  if(depth > 5) return;
+  const minSize = 10;
+  const splitH = Math.random() > 0.5;
+  if(splitH && node.h >= minSize*2+2) {
+    const split = minSize + Math.floor(Math.random()*(node.h - minSize*2));
+    node.left = new BSPNode(node.x, node.y, node.w, split);
+    node.right = new BSPNode(node.x, node.y+split, node.w, node.h-split);
+    bspSplit(node.left, depth+1);
+    bspSplit(node.right, depth+1);
+  } else if(!splitH && node.w >= minSize*2+2) {
+    const split = minSize + Math.floor(Math.random()*(node.w - minSize*2));
+    node.left = new BSPNode(node.x, node.y, split, node.h);
+    node.right = new BSPNode(node.x+split, node.y, node.w-split, node.h);
+    bspSplit(node.left, depth+1);
+    bspSplit(node.right, depth+1);
+  }
+}
+
+function placeRooms(node, grid, roomList) {
+  if(node.left || node.right) {
+    if(node.left) placeRooms(node.left, grid, roomList);
+    if(node.right) placeRooms(node.right, grid, roomList);
+    // connect
+    const la = getRoomCenter(node.left);
+    const ra = getRoomCenter(node.right);
+    if(la && ra) carve(grid, la, ra);
+  } else {
+    const pad = 1;
+    const rw = Math.floor(4 + Math.random()*(node.w - 6));
+    const rh = Math.floor(4 + Math.random()*(node.h - 6));
+    const rx = node.x + pad + Math.floor(Math.random()*(node.w - rw - pad*2));
+    const ry = node.y + pad + Math.floor(Math.random()*(node.h - rh - pad*2));
+    node.room = {x:rx, y:ry, w:rw, h:rh};
+    roomList.push(node.room);
+    for(let y=ry;y<ry+rh;y++) for(let x=rx;x<rx+rw;x++) grid[y*GRID_W+x]=T_FLOOR;
+  }
+}
+
+function getRoomCenter(node) {
+  if(!node) return null;
+  if(node.room) return {x:Math.floor(node.room.x+node.room.w/2), y:Math.floor(node.room.y+node.room.h/2)};
+  const l = getRoomCenter(node.left);
+  const r = getRoomCenter(node.right);
+  return l||r;
+}
+
+function carve(grid, a, b) {
+  let {x:cx, y:cy} = a;
+  if(Math.random()<0.5) {
+    while(cx!==b.x) { grid[cy*GRID_W+cx]=T_FLOOR; cx+=cx<b.x?1:-1; }
+    while(cy!==b.y) { grid[cy*GRID_W+cx]=T_FLOOR; cy+=cy<b.y?1:-1; }
+  } else {
+    while(cy!==b.y) { grid[cy*GRID_W+cx]=T_FLOOR; cy+=cy<b.y?1:-1; }
+    while(cx!==b.x) { grid[cy*GRID_W+cx]=T_FLOOR; cx+=cx<b.x?1:-1; }
+  }
+}
+
+function generateDungeon() {
+  const grid = new Uint8Array(GRID_W * GRID_H);
+  grid.fill(T_WALL);
+  const root = new BSPNode(1,1,GRID_W-2,GRID_H-2);
+  bspSplit(root);
+  const roomList = [];
+  placeRooms(root, grid, roomList);
+  return { grid, rooms: roomList };
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+function initGame() {
+  dungeonCanvas = document.getElementById('dungeon-canvas');
+  fogCanvas = document.getElementById('fog-canvas');
+  mapCanvas = document.getElementById('map-canvas');
+  dungeonCtx = dungeonCanvas.getContext('2d');
+  fogCtx = fogCanvas.getContext('2d');
+  mapCtx = mapCanvas.getContext('2d');
+
+  const wrap = document.getElementById('dungeon-wrap');
+  dungeonCanvas.width = wrap.clientWidth;
+  dungeonCanvas.height = wrap.clientHeight;
+  fogCanvas.width = wrap.clientWidth;
+  fogCanvas.height = wrap.clientHeight;
+
+  startNewFloor();
+  setupMapCanvas();
+  setupKeys();
+  requestAnimationFrame(gameLoop);
+}
+
+function startNewFloor() {
+  const d = generateDungeon();
+  dungeon = d.grid;
+  rooms = d.rooms;
+
+  fogMap = new Uint8Array(GRID_W * GRID_H); // 0=unseen,1=partial,2=visible
+  revealed = new Uint8Array(GRID_W * GRID_H);
+
+  // Place player in first room
+  const startRoom = rooms[0];
+  player.x = Math.floor(startRoom.x + startRoom.w/2);
+  player.y = Math.floor(startRoom.y + startRoom.h/2);
+
+  // Stairs in last room
+  const lastRoom = rooms[rooms.length-1];
+  stairsPos = { x: Math.floor(lastRoom.x+lastRoom.w/2), y: Math.floor(lastRoom.y+lastRoom.h/2) };
+  dungeon[stairsPos.y*GRID_W+stairsPos.x] = T_STAIRS;
+
+  // Scatter monsters and treasure
+  monsters = [];
+  treasures = [];
+  const skipRooms = new Set([0, rooms.length-1]);
+  rooms.forEach((room, i) => {
+    if(skipRooms.has(i)) return;
+    if(Math.random()<0.6) {
+      const mx = room.x+1+Math.floor(Math.random()*(room.w-2));
+      const my = room.y+1+Math.floor(Math.random()*(room.h-2));
+      monsters.push({x:mx,y:my,alive:true,type:Math.floor(Math.random()*3)});
+    }
+    if(Math.random()<0.5) {
+      const tx = room.x+1+Math.floor(Math.random()*(room.w-2));
+      const ty = room.y+1+Math.floor(Math.random()*(room.h-2));
+      treasures.push({x:tx,y:ty,collected:false});
+    }
+  });
+
+  stats = { roomsExplored: new Set(), monstersAvoided: 0, treasureFound: 0, steps: 0, monstersEncountered: 0 };
+  gameOver = false;
+  updateFog();
+  updateHUD();
+}
+
+// ─── FOG OF WAR ──────────────────────────────────────────────────────────────
+function updateFog() {
+  // clear current visible
+  for(let i=0;i<fogMap.length;i++) if(fogMap[i]===2) fogMap[i]=1;
+
+  const px=player.x, py=player.y;
+  for(let dy=-VISION_R;dy<=VISION_R;dy++) {
+    for(let dx=-VISION_R;dx<=VISION_R;dx++) {
+      const dist = Math.sqrt(dx*dx+dy*dy);
+      if(dist>VISION_R) continue;
+      const nx=px+dx, ny=py+dy;
+      if(nx<0||ny<0||nx>=GRID_W||ny>=GRID_H) continue;
+      if(hasLineOfSight(px,py,nx,ny)) {
+        fogMap[ny*GRID_W+nx]=2;
+        revealed[ny*GRID_W+nx]=1;
+      }
+    }
+  }
+  // track room
+  rooms.forEach((room,i) => {
+    if(px>=room.x && px<room.x+room.w && py>=room.y && py<room.y+room.h) {
+      if(!stats.roomsExplored.has(i)) {
+        stats.roomsExplored.add(i);
+        showToast(getRoomDiscoveryMsg());
+      }
+    }
+  });
+}
+
+function hasLineOfSight(x0,y0,x1,y1) {
+  let dx=Math.abs(x1-x0), dy=Math.abs(y1-y0);
+  let sx=x0<x1?1:-1, sy=y0<y1?1:-1;
+  let err=dx-dy, cx=x0, cy=y0;
+  while(true) {
+    if(cx===x1&&cy===y1) return true;
+    const t=dungeon[cy*GRID_W+cx];
+    if(t===T_WALL) return false;
+    const e2=2*err;
+    if(e2>-dy){err-=dy;cx+=sx;}
+    if(e2<dx){err+=dx;cy+=sy;}
+  }
+}
+
+// ─── DRAWING ─────────────────────────────────────────────────────────────────
+const COLORS = {
+  [T_VOID]: '#080604',
+  [T_WALL]: '#1e180e',
+  [T_FLOOR]: '#2e2418',
+  [T_DOOR]: '#4a3018',
+  [T_STAIRS]: '#1a5a7a',
+};
+const WALL_TOP = '#3d3020';
+const FLOOR_DETAIL = '#352a1c';
+
+let camX=0, camY=0;
+
+function gameLoop() {
+  const wrap = document.getElementById('dungeon-wrap');
+  const cw=wrap.clientWidth, ch=wrap.clientHeight;
+  if(dungeonCanvas.width!==cw||dungeonCanvas.height!==ch) {
+    dungeonCanvas.width=cw; dungeonCanvas.height=ch;
+    fogCanvas.width=cw; fogCanvas.height=ch;
+  }
+
+  // smooth camera
+  const targetCX = player.x*TILE - cw/2 + TILE/2;
+  const targetCY = player.y*TILE - ch/2 + TILE/2;
+  camX += (targetCX-camX)*0.12;
+  camY += (targetCY-camY)*0.12;
+
+  draw();
+  if(!gameOver) requestAnimationFrame(gameLoop);
+}
+
+function draw() {
+  const ctx = dungeonCtx;
+  const cw=dungeonCanvas.width, ch=dungeonCanvas.height;
+  ctx.clearRect(0,0,cw,ch);
+  ctx.fillStyle='#080604';
+  ctx.fillRect(0,0,cw,ch);
+
+  ctx.save();
+  ctx.translate(-Math.round(camX), -Math.round(camY));
+
+  // tiles
+  const startX = Math.max(0, Math.floor(camX/TILE)-1);
+  const startY = Math.max(0, Math.floor(camY/TILE)-1);
+  const endX = Math.min(GRID_W, startX + Math.ceil(cw/TILE)+3);
+  const endY = Math.min(GRID_H, startY + Math.ceil(ch/TILE)+3);
+
+  for(let y=startY;y<endY;y++) {
+    for(let x=startX;x<endX;x++) {
+      const idx=y*GRID_W+x;
+      const vis=fogMap[idx];
+      if(vis===0) continue;
+      const tile=dungeon[idx];
+      const px=x*TILE, py=y*TILE;
+      const alpha = vis===2?1:0.45;
+      ctx.globalAlpha=alpha;
+
+      if(tile===T_WALL) {
+        ctx.fillStyle='#2a2018';
+        ctx.fillRect(px,py,TILE,TILE);
+        // top highlight
+        if(y>0 && dungeon[(y-1)*GRID_W+x]!==T_WALL) {
+          ctx.fillStyle='#3d3020';
+          ctx.fillRect(px,py,TILE,3);
+        }
+      } else if(tile===T_FLOOR||tile===T_DOOR) {
+        ctx.fillStyle='#2e2418';
+        ctx.fillRect(px,py,TILE,TILE);
+        // subtle stone pattern
+        if((x+y)%3===0) { ctx.fillStyle='rgba(255,255,255,0.02)'; ctx.fillRect(px+2,py+2,TILE-4,TILE-4); }
+      } else if(tile===T_STAIRS) {
+        ctx.fillStyle='#1a5a7a';
+        ctx.fillRect(px,py,TILE,TILE);
+        ctx.fillStyle='rgba(255,255,255,0.1)';
+        for(let i=0;i<4;i++) ctx.fillRect(px+3, py+3+i*4, TILE-6, 2);
+      }
+      ctx.globalAlpha=1;
+    }
+  }
+
+  // treasures
+  treasures.forEach(t => {
+    if(t.collected) return;
+    const vis=fogMap[t.y*GRID_W+t.x];
+    if(vis===0) return;
+    ctx.globalAlpha=vis===2?1:0.4;
+    const px=t.x*TILE+TILE/2, py=t.y*TILE+TILE/2;
+    // glow
+    if(vis===2) {
+      const g=ctx.createRadialGradient(px,py,0,px,py,10);
+      g.addColorStop(0,'rgba(212,160,23,0.4)');
+      g.addColorStop(1,'rgba(212,160,23,0)');
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.arc(px,py,10,0,Math.PI*2);ctx.fill();
+    }
+    ctx.fillStyle='#d4a017';
+    ctx.font='bold 14px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('✦', px, py+1);
+    ctx.globalAlpha=1;
+  });
+
+  // monsters
+  const monsterGlyphs = ['☠','⚔','👁'];
+  monsters.forEach(m => {
+    if(!m.alive) return;
+    const vis=fogMap[m.y*GRID_W+m.x];
+    if(vis===0) return;
+    ctx.globalAlpha=vis===2?1:0.3;
+    const px=m.x*TILE+TILE/2, py=m.y*TILE+TILE/2;
+    if(vis===2) {
+      const g=ctx.createRadialGradient(px,py,0,px,py,10);
+      g.addColorStop(0,'rgba(139,26,26,0.35)');
+      g.addColorStop(1,'rgba(139,26,26,0)');
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.arc(px,py,10,0,Math.PI*2);ctx.fill();
+    }
+    ctx.fillStyle='#c0392b';
+    ctx.font='13px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(monsterGlyphs[m.type], px, py+1);
+    ctx.globalAlpha=1;
+  });
+
+  // stairs indicator
+  if(stairsPos && fogMap[stairsPos.y*GRID_W+stairsPos.x]>0) {
+    const px=stairsPos.x*TILE+TILE/2, py=stairsPos.y*TILE+TILE/2;
+    ctx.globalAlpha=0.8;
+    ctx.fillStyle='#7ec8e3';
+    ctx.font='12px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('▼', px, py+1);
+    ctx.globalAlpha=1;
+  }
+
+  // player
+  const ppx=player.x*TILE+TILE/2, ppy=player.y*TILE+TILE/2;
+  // torch glow
+  const tg=ctx.createRadialGradient(ppx,ppy,0,ppx,ppy,VISION_R*TILE);
+  tg.addColorStop(0,'rgba(255,154,26,0.12)');
+  tg.addColorStop(0.5,'rgba(255,154,26,0.05)');
+  tg.addColorStop(1,'rgba(255,154,26,0)');
+  ctx.fillStyle=tg;
+  ctx.beginPath();ctx.arc(ppx,ppy,VISION_R*TILE,0,Math.PI*2);ctx.fill();
+
+  ctx.fillStyle='#e8c87a';
+  ctx.beginPath();ctx.arc(ppx,ppy,6,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='rgba(255,220,100,0.6)';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(ppx,ppy,8,0,Math.PI*2);ctx.stroke();
+
+  ctx.restore();
+  drawFog();
+}
+
+function drawFog() {
+  const ctx = fogCtx;
+  const cw=fogCanvas.width, ch=fogCanvas.height;
+  ctx.clearRect(0,0,cw,ch);
+
+  for(let y=0;y<GRID_H;y++) {
+    for(let x=0;x<GRID_W;x++) {
+      const vis=fogMap[y*GRID_W+x];
+      if(vis===2) continue;
+      const px=x*TILE-Math.round(camX), py=y*TILE-Math.round(camY);
+      if(px+TILE<0||py+TILE<0||px>cw||py>ch) continue;
+      ctx.fillStyle=vis===0?'#0c0806':'rgba(12,8,4,0.62)';
+      ctx.fillRect(px,py,TILE+1,TILE+1);
+    }
+  }
+}
+
+// ─── MOVEMENT ────────────────────────────────────────────────────────────────
+function tryMove(dx, dy) {
+  if(gameOver) return;
+  const nx=player.x+dx, ny=player.y+dy;
+  if(nx<0||ny<0||nx>=GRID_W||ny>=GRID_H) return;
+  const tile=dungeon[ny*GRID_W+nx];
+  if(tile===T_WALL||tile===T_VOID) return;
+
+  // Check monster
+  const mon=monsters.find(m=>m.alive&&m.x===nx&&m.y===ny);
+  if(mon) {
+    stats.monstersEncountered++;
+    showToast('A monster blocks your path! Find another way.');
+    return;
+  }
+
+  player.x=nx; player.y=ny;
+  stats.steps++;
+
+  // Check treasure
+  const tr=treasures.find(t=>!t.collected&&t.x===nx&&t.y===ny);
+  if(tr) { tr.collected=true; stats.treasureFound++; showToast('✦ You found treasure!'); }
+
+  // Check stairs
+  if(tile===T_STAIRS) {
+    showToast('You descend deeper into the dungeon...');
+    setTimeout(()=>{ floorNum++; startNewFloor(); },800);
+    return;
+  }
+
+  updateFog();
+  // count monsters avoided (nearby but not stepped on)
+  let avoided=0;
+  monsters.forEach(m=>{ if(m.alive&&Math.abs(m.x-player.x)<=3&&Math.abs(m.y-player.y)<=3) avoided++; });
+  stats.monstersAvoided = Math.max(stats.monstersAvoided, avoided);
+  updateHUD();
+}
+
+function setupKeys() {
+  document.addEventListener('keydown', e=>{
+    const map={'ArrowUp':[ 0,-1],'ArrowDown':[ 0,1],'ArrowLeft':[-1,0],'ArrowRight':[1,0],'w':[0,-1],'s':[0,1],'a':[-1,0],'d':[1,0],'W':[0,-1],'S':[0,1],'A':[-1,0],'D':[1,0]};
+    const dir=map[e.key];
+    if(dir){e.preventDefault();tryMove(dir[0],dir[1]);}
+  });
+}
+
+// ─── MAP DRAWING ──────────────────────────────────────────────────────────────
+function setupMapCanvas() {
+  const mc=document.getElementById('map-canvas');
+  mc.addEventListener('mousedown',e=>{mapDrawing=true;paintMap(e);});
+  mc.addEventListener('mousemove',e=>{if(mapDrawing)paintMap(e);});
+  mc.addEventListener('mouseup',()=>mapDrawing=false);
+  mc.addEventListener('mouseleave',()=>mapDrawing=false);
+  mc.addEventListener('touchstart',e=>{e.preventDefault();mapDrawing=true;paintMapTouch(e);},{passive:false});
+  mc.addEventListener('touchmove',e=>{e.preventDefault();if(mapDrawing)paintMapTouch(e);},{passive:false});
+  mc.addEventListener('touchend',()=>mapDrawing=false);
+  drawMap();
+}
+
+function paintMapTouch(e) {
+  const t=e.touches[0];
+  paintMap({offsetX:t.clientX-mapCanvas.getBoundingClientRect().left, offsetY:t.clientY-mapCanvas.getBoundingClientRect().top});
+}
+
+function paintMap(e) {
+  const cellW=mapCanvas.width/MAP_GRID, cellH=mapCanvas.height/MAP_GRID;
+  const cx=Math.floor(e.offsetX/cellW), cy=Math.floor(e.offsetY/cellH);
+  if(cx<0||cy<0||cx>=MAP_GRID||cy>=MAP_GRID) return;
+  const v = mapTool==='wall'?1:mapTool==='room'?2:0;
+  mapData[cy*MAP_GRID+cx]=v;
+  drawMap();
+}
+
+function drawMap() {
+  const ctx=mapCtx, cw=mapCanvas.width, ch=mapCanvas.height;
+  const cellW=cw/MAP_GRID, cellH=ch/MAP_GRID;
+  ctx.clearRect(0,0,cw,ch);
+
+  // parchment bg
+  ctx.fillStyle='#d4b896';
+  ctx.fillRect(0,0,cw,ch);
+
+  // grid
+  ctx.strokeStyle='rgba(80,40,10,0.12)';ctx.lineWidth=0.5;
+  for(let i=0;i<=MAP_GRID;i++) {
+    ctx.beginPath();ctx.moveTo(i*cellW,0);ctx.lineTo(i*cellW,ch);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,i*cellH);ctx.lineTo(cw,i*cellH);ctx.stroke();
+  }
+
+  // player dot on map (scaled)
+  const scaleX=MAP_GRID/GRID_W, scaleY=MAP_GRID/GRID_H;
+  const pmx=player.x*scaleX, pmy=player.y*scaleY;
+
+  // drawn marks
+  for(let y=0;y<MAP_GRID;y++) {
+    for(let x=0;x<MAP_GRID;x++) {
+      const v=mapData[y*MAP_GRID+x];
+      if(v===0) continue;
+      ctx.fillStyle=v===1?'rgba(30,15,5,0.75)':'rgba(100,60,20,0.35)';
+      ctx.fillRect(x*cellW+0.5,y*cellH+0.5,cellW-1,cellH-1);
+    }
+  }
+
+  // player
+  ctx.fillStyle='#c0392b';
+  ctx.beginPath();ctx.arc(pmx*cellW+cellW/2,pmy*cellH+cellH/2,3,0,Math.PI*2);ctx.fill();
+}
+
+function setMapTool(tool) {
+  mapTool=tool;
+  document.querySelectorAll('.map-tool-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tool-'+tool).classList.add('active');
+}
+function clearMap() { mapData.fill(0); drawMap(); }
+
+// ─── MAP ACCURACY ─────────────────────────────────────────────────────────────
+function calcMapAccuracy() {
+  const scaleX=MAP_GRID/GRID_W, scaleY=MAP_GRID/GRID_H;
+  let correct=0, total=0;
+  for(let y=0;y<MAP_GRID;y++) {
+    for(let x=0;x<MAP_GRID;x++) {
+      const dgx=Math.floor(x/scaleX), dgy=Math.floor(y/scaleY);
+      if(dgx>=GRID_W||dgy>=GRID_H) continue;
+      if(!revealed[dgy*GRID_W+dgx]) continue; // only count revealed areas
+      total++;
+      const dTile=dungeon[dgy*GRID_W+dgx];
+      const mVal=mapData[y*MAP_GRID+x];
+      const dungeonIsWall=(dTile===T_WALL||dTile===T_VOID);
+      const mapIsWall=(mVal===1);
+      const mapIsRoom=(mVal===2);
+      const dungeonIsFloor=!dungeonIsWall;
+      if(dungeonIsWall && mapIsWall) correct+=1;
+      else if(dungeonIsFloor && mapIsRoom) correct+=1;
+      else if(mVal===0) correct+=0.3; // blank = partial credit
+    }
+  }
+  if(total===0) return 0;
+  return Math.round((correct/total)*100);
+}
+
+// ─── HUD ──────────────────────────────────────────────────────────────────────
+function updateHUD() {
+  const totalCells=revealed.reduce((a,b)=>a+b,0);
+  const totalFloor=dungeon.filter(t=>t!==T_WALL&&t!==T_VOID).length;
+  document.getElementById('hud-floor').textContent=floorNum;
+  document.getElementById('hud-rooms').textContent=stats.roomsExplored.size+'/'+rooms.length;
+  document.getElementById('hud-explored').textContent=Math.round(totalCells/totalFloor*100)+'%';
+  document.getElementById('hud-monsters').textContent=stats.monstersEncountered;
+  document.getElementById('hud-treasure').textContent=stats.treasureFound;
+  document.getElementById('hud-steps').textContent=stats.steps;
+  drawMap();
+}
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+let toastTimer=null;
+function showToast(msg) {
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.classList.remove('show'),2400);
+}
+
+const discoveryMsgs=[
+  'You enter a new chamber...','The air grows cold here.','Torchlight reveals ancient stones.','Dust swirls around your boots.','Shadows retreat as you advance.','Something scurries in the dark.','An old chamber, long forgotten.','The walls are etched with runes.'
+];
+let msgIdx=0;
+function getRoomDiscoveryMsg(){ return discoveryMsgs[msgIdx++%discoveryMsgs.length]; }
+
+// ─── SCORECARD ────────────────────────────────────────────────────────────────
+function exitDungeon() {
+  gameOver=true;
+  const accuracy=calcMapAccuracy();
+  const roomsPct=Math.round(stats.roomsExplored.size/rooms.length*100);
+
+  document.getElementById('sc-accuracy').textContent=accuracy+'%';
+  document.getElementById('sc-rooms').textContent=stats.roomsExplored.size;
+  document.getElementById('sc-rooms-sub').textContent='of '+rooms.length+' rooms';
+  document.getElementById('sc-monsters').textContent=stats.monstersEncountered;
+  document.getElementById('sc-monsters-sub').textContent='encounters this floor';
+  document.getElementById('sc-treasure').textContent=stats.treasureFound+'/'+treasures.length;
+  document.getElementById('sc-treasure-sub').textContent='treasures recovered';
+
+  const score = accuracy*0.4 + roomsPct*0.3 + stats.treasureFound*10 - stats.monstersEncountered*5;
+  let rank, desc;
+  if(score>=80){rank='Master Cartographer';desc='"Your maps rival the guild masters themselves."';}
+  else if(score>=60){rank='Journeyman Surveyor';desc='"A commendable survey — a few dark corners remain."';}
+  else if(score>=40){rank='Apprentice Scout';desc='"You mapped what you dared. Wisdom over bravado."';}
+  else if(score>=20){rank='Hasty Wanderer';desc='"You ran through faster than you mapped."';}
+  else{rank='Lost Soul';desc='"The dungeon swallowed your notes whole."';}
+
+  document.getElementById('sc-rank-title').textContent=rank;
+  document.getElementById('sc-rank-desc').textContent=desc;
+  document.getElementById('scorecard').classList.add('visible');
+}
+
+function restartGame() {
+  document.getElementById('scorecard').classList.remove('visible');
+  floorNum=1; gameOver=false;
+  mapData.fill(0);
+  startNewFloor();
+  requestAnimationFrame(gameLoop);
+}
+
+// ─── LOADING ──────────────────────────────────────────────────────────────────
+window.addEventListener('load', ()=>{
+  const bar=document.getElementById('load-bar');
+  let prog=0;
+  const iv=setInterval(()=>{
+    prog+=Math.random()*18;
+    bar.style.width=Math.min(prog,100)+'%';
+    if(prog>=100){
+      clearInterval(iv);
+      setTimeout(()=>{
+        const ls=document.getElementById('loading-screen');
+        ls.style.opacity='0';
+        setTimeout(()=>{ls.style.display='none';initGame();},800);
+      },300);
+    }
+  },80);
+});
+</script>
+</body>
+</html>
