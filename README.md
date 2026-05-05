@@ -8,7 +8,7 @@ At the end, your hand-drawn map is scored against the real dungeon layout.
 
 ## Gameplay
 
-- Explore a procedurally generated dungeon — rooms are hidden behind **fog of war**
+- Explore a dungeon — rooms are hidden behind **fog of war**
 - As you explore, **draw your own map** on the mini-grid overlay using your mouse/touch
 - Avoid monsters roaming the corridors
 - Collect treasure hidden in rooms
